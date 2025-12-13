@@ -18,6 +18,8 @@ Route::middleware([
     Route::get('/dashboard', function () {
         return view('dashboard');
     })->name('dashboard');
+Route::get('/dashboard/data', [ProductsController::class, 'getDashboardData'])->name('dashboard.data');
+
 });
 // routes/web.php - Para la vista principal
 Route::get('/pos', [ProductsController::class, 'index'])->name('pos.index');

@@ -73,7 +73,7 @@
 
     <div class="summary">
         <p><strong>Folio:</strong> {{ $sale->invoice_number }}</p>
-        <p><strong>Fecha:</strong> {{ $sale->sale_date->format('d/m/Y H:i') }}</p>
+        <p><strong>Fecha:</strong> {{ $sale->sale_date->format('d/m/Y') }}</p>
         <p><strong>Método de pago:</strong> {{ ucfirst($sale->payment_method) }}</p>
         <p><strong>Total:</strong> ${{ number_format($sale->total, 2) }}</p>
     </div>

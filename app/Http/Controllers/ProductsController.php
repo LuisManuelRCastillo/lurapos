@@ -9,6 +9,7 @@ use App\Models\Sale;
 use App\Services\SaleService;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
 
 
 
@@ -30,7 +31,7 @@ class ProductsController extends Controller
         return view('welcome');
     }
     public function getBranches(){
-        $branches = \App\Models\branchModel::all();
+        $branches = \App\Models\BranchModel::all();
         return response()->json($branches); 
     }
     /**
@@ -278,61 +279,87 @@ public function processSale(Request $request)
             ], 422);
         }
     }
-    
+    public function dashboard(Request $request)
+{
+    if ($request->ajax()) {
+        return response()->json($this->getDashboardData($request));
+    }
+
+    return view('dashboard');
+}
     /**
      * Dashboard de estadísticas
      */
-    public function dashboard(Request $request)
-    {
-        $dateFrom = $request->get('date_from', now()->startOfMonth());
-        $dateTo = $request->get('date_to', now());
-        
-        $stats = [
-            // Ventas del período
-            'total_sales' => Sale::whereBetween('sale_date', [$dateFrom, $dateTo])
-                ->where('status', 'completada')
-                ->sum('total'),
-            
-            // Número de transacciones
-            'transactions_count' => Sale::whereBetween('sale_date', [$dateFrom, $dateTo])
-                ->where('status', 'completada')
-                ->count(),
-            
-            // Ticket promedio
-            'average_ticket' => Sale::whereBetween('sale_date', [$dateFrom, $dateTo])
-                ->where('status', 'completada')
-                ->avg('total'),
-            
-            // Productos con stock bajo
-            'low_stock_products' => Product::whereRaw('stock <= min_stock')
-                ->count(),
-            
-            // Top 5 productos más vendidos
-            'top_products' => DB::table('sale_details')
-                ->join('products', 'sale_details.product_id', '=', 'products.id')
-                ->join('sales', 'sale_details.sale_id', '=', 'sales.id')
-                ->whereBetween('sales.sale_date', [$dateFrom, $dateTo])
-                ->where('sales.status', 'completada')
-                ->select(
-                    'products.name',
-                    DB::raw('SUM(sale_details.quantity) as total_sold'),
-                    DB::raw('SUM(sale_details.total) as revenue')
-                )
-                ->groupBy('products.id', 'products.name')
-                ->orderByDesc('total_sold')
-                ->limit(5)
-                ->get(),
-            
-            // Ventas por método de pago
-            'sales_by_method' => Sale::whereBetween('sale_date', [$dateFrom, $dateTo])
-                ->where('status', 'completada')
-                ->select('payment_method', DB::raw('COUNT(*) as count'), DB::raw('SUM(total) as total'))
-                ->groupBy('payment_method')
-                ->get(),
-        ];
-        
-        return response()->json($stats);
-    }
+public function getDashboardData(Request $request)
+{
+    $branchId = $request->get('branch_id');
+
+    $startDate = $request->get('date_from', today());
+    $endDate = $request->get('date_to', today()->copy()->addDay());
+
+    $startDate = Carbon::parse($startDate)->startOfDay();
+    $endDate = Carbon::parse($endDate)->endOfDay();
+
+    $salesQuery = Sale::where('status', 'completada')
+        ->whereBetween('sale_date', [$startDate, $endDate])
+        ->when($branchId, fn($q) => $q->where('branch_id', $branchId));
+
+    $stats = [
+        'total_sales' => $salesQuery->sum('total'),
+
+        'transactions_count' => $salesQuery->count(),
+
+        'average_ticket' => $salesQuery->avg('total'),
+
+        'low_stock_products' => Product::whereColumn('stock', '<=', 'min_stock')->count(),
+
+        'daily_sales' => Sale::where('status', 'completada')
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+            ->selectRaw('DATE(sale_date) as date, SUM(total) as total')
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get(),
+
+        'top_products' => DB::table('sale_details')
+            ->join('products', 'sale_details.product_id', '=', 'products.id')
+            ->join('sales', 'sale_details.sale_id', '=', 'sales.id')
+            ->whereBetween('sales.sale_date', [$startDate, $endDate])
+            ->where('sales.status', 'completada')
+            ->when($branchId, fn($q) => $q->where('sales.branch_id', $branchId))
+            ->selectRaw('products.name, SUM(sale_details.quantity) as total_sold, SUM(sale_details.total) as revenue')
+            ->groupBy('products.id', 'products.name')
+            ->orderByDesc('total_sold')
+            ->limit(5)
+            ->get(),
+
+        'sales_by_method' => $salesQuery
+            ->selectRaw('payment_method, COUNT(*) as count, SUM(total) as total')
+            ->groupBy('payment_method')
+            ->get(),
+
+        'sales_detail' => DB::table('sales')
+            ->join('sale_details', 'sales.id', '=', 'sale_details.sale_id')
+            ->join('products', 'sale_details.product_id', '=', 'products.id')
+            ->whereBetween('sales.sale_date', [$startDate, $endDate])
+            ->where('sales.status', 'completada')
+            ->when($branchId, fn($q) => $q->where('sales.branch_id', $branchId))
+            ->select(
+                'sales.id',
+                'sales.sale_date',
+                'sales.payment_method',
+                DB::raw('SUM(sale_details.quantity) as total_quantity'),
+                DB::raw('SUM(sale_details.total) as total_amount'),
+                DB::raw('GROUP_CONCAT(CONCAT(products.name, " (x", sale_details.quantity, ")") SEPARATOR ", ") as products')
+            )
+            ->groupBy('sales.id', 'sales.sale_date', 'sales.payment_method')
+            ->orderBy('sales.sale_date', 'desc')
+            ->get(),
+    ];
+
+    return response()->json($stats);
+}
+
+
     public function inventoryView()
 {
     $categories = \App\Models\Category::all();

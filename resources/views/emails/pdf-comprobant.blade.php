@@ -182,6 +182,16 @@
             font-weight: bold;
             margin-bottom: 5px;
         }
+
+
+        .total-discount{
+            font-size: 8pt;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #ff0000;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
         
         .total-amount {
             font-size: 24pt;
@@ -263,7 +273,11 @@
                 </tbody>
             </table>
         </div>
-        
+        <div class="total-section">
+            <div class="total-container">
+                <div class="total-discount">Descuento: ${{ number_format($sale->discount, 2) }}</div>
+            </div>
+        </div>
         <!-- Total -->
         <div class="total-section">
             <div class="total-container">

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\BranchModel;
 
 class Sale extends Model
 {
@@ -42,9 +43,9 @@ class Sale extends Model
         return $this->hasMany(SaleDetail::class);
     }
     public function branch()
-{
-    return $this->belongsTo(BranchModel::class);
-}
+    {
+        return $this->belongsTo(BranchModel::class);
+    }
     // Generar número de factura automático
     public static function generateInvoiceNumber()
     {
@@ -52,4 +53,5 @@ class Sale extends Model
         $number = $lastSale ? intval(substr($lastSale->invoice_number, 3)) + 1 : 1;
         return 'FAC' . str_pad($number, 6, '0', STR_PAD_LEFT);
     }
+
 }

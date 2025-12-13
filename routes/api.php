@@ -18,7 +18,7 @@ Route::prefix('pos')->group(function () {
     Route::get('/sales/{id}', [ProductsController::class, 'getSale']);
     Route::post('/sales/{id}/cancel', [ProductsController::class, 'cancelSale']);
     Route::post('/sales/{id}/resend', [ProductsController::class, 'resendReceipt']);
-    Route::get('/dashboard', [ProductsController::class, 'dashboard']);
+
     Route::post('/pos/products', [ProductController::class, 'store']);
 });
 

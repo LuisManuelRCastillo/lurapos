@@ -12,19 +12,39 @@
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; background: #f9fafb; }
+    body { 
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; 
+        background: #f9fafb;
+        /* Importante: permitir scroll en body para móviles */
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
     .scrollbar-hidden::-webkit-scrollbar { display: none; }
+    
+    /* Asegurar que el contenedor principal permita scroll en móvil */
+    @media (max-width: 768px) {
+        .main-container {
+            height: auto !important;
+            min-height: 100vh;
+            overflow-y: visible !important;
+        }
+        
+        .products-grid {
+            max-height: none !important;
+            overflow-y: visible !important;
+        }
+    }
 </style>
 </head>
 <body>
-<div class="flex flex-col md:flex-row h-screen overflow-hidden">
+<div class="main-container flex flex-col md:flex-row md:h-screen md:overflow-hidden">
 
     <!-- Panel Productos -->
     <div class="flex-1 flex flex-col p-4">
         <div class="relative flex items-center mb-4">
-    <img style="max-width: 50px;" src="{{ asset('/assets/img/granvn-logosf.png') }}" alt="">
-    <div id="branchesContainer" class="absolute left-1/2 transform -translate-x-1/2"></div>
-</div>
+            <img style="max-width: 50px;" src="{{ asset('/assets/img/granvn-logosf.png') }}" alt="">
+            <div id="branchesContainer" class="absolute left-1/2 transform -translate-x-1/2"></div>
+        </div>
 
         <!-- Buscador -->
         <div class="relative mb-4">
@@ -37,7 +57,7 @@
         <div id="categoriesContainer" class="flex gap-2 overflow-x-auto mb-4 scrollbar-hidden"></div>
 
         <!-- Productos -->
-        <div id="productsContainer" class="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+        <div id="productsContainer" class="products-grid flex-1 md:overflow-y-auto grid grid-cols-2 md:grid-cols-4 gap-4 pb-20 md:pb-4"></div>
     </div>
 
 </div>
@@ -49,7 +69,7 @@
 
 <!-- Modal del carrito -->
 <div id="cartModal" class="fixed inset-0 bg-black bg-opacity-50 hidden justify-center items-center z-40">
-    <div class="bg-white w-96 p-6 rounded-lg relative">
+    <div class="bg-white w-96 max-w-[90vw] p-6 rounded-lg relative max-h-[90vh] overflow-y-auto">
         <button id="closeCart" class="absolute top-2 right-2 text-gray-500 hover:text-gray-800 font-bold">&times;</button>
         <h2 class="text-xl font-bold mb-4">Carrito</h2>
         <div id="cartItems" class="space-y-2 max-h-64 overflow-y-auto scrollbar-hidden"></div>
@@ -147,7 +167,7 @@ function renderBranches() {
 }
 
 
-// Render categorías
+
 function renderCategories() {
     categoriesContainer.innerHTML = '';
     categories.forEach(cat => {
@@ -161,7 +181,7 @@ function renderCategories() {
     });
 }
 
-// Render productos
+
 function renderProducts() {
     productsContainer.innerHTML = '';
     if(!products.length){
@@ -175,13 +195,10 @@ function renderProducts() {
         const div = document.createElement('div');
         div.className = "bg-white rounded-xl shadow-md p-4 cursor-pointer hover:shadow-2xl transition-all hover:scale-105 border-2 border-transparent hover:border-green-400";
         div.innerHTML = `
-            <div class="aspect-square bg-gray-100 rounded-xl mb-3 flex items-center justify-center">
-                <span class="text-5xl">📦</span>
-            </div>
             <p class="text-xs text-gray-500 mb-1">${p.code}</p>
-            <h3 class="font-bold text-sm">${p.name}</h3>
+            <h3 class="font-bold text-sm mb-2">${p.name}</h3>
             <div class="flex justify-between items-center pt-2">
-                <span class="text-lg font-bold text-green-600">$${p.price.toFixed(2)}</span>
+                <span class="text-lg font-bold text-green-600">${p.price.toFixed(2)}</span>
                 <span class="text-xs px-2 py-1 rounded-full ${p.stock<=5?'bg-red-100 text-red-700':'bg-green-100 text-green-700'}">${p.stock} 📦</span>
             </div>`;
         div.onclick = () => addToCart(p);
@@ -189,7 +206,7 @@ function renderProducts() {
     });
 }
 
-// ======== Carrito ========
+
 function addToCart(product) {
     const existing = cart.find(i => i.id===product.id);
     if(existing) existing.quantity++;
@@ -225,7 +242,6 @@ function renderCartModal() {
             <span>$${itemTotal.toFixed(2)}</span>
         `;
 
-        // Restar cantidad
         div.children[0].children[0].onclick = () => {
             if(item.quantity > 1) item.quantity--;
             else cart = cart.filter(i => i.id !== item.id);
@@ -233,7 +249,7 @@ function renderCartModal() {
             renderCartModal();
         };
 
-        // Sumar cantidad
+
         div.children[0].children[2].onclick = () => {
             if(item.quantity < item.stock) item.quantity++;
             else Swal.fire('⚠️ Stock máximo alcanzado','','warning');
@@ -248,7 +264,7 @@ function renderCartModal() {
     cartCount.innerText = cart.length;
 }
 
-// ======== Modal ========
+
 cartBtn.onclick = () => {
     renderCartModal();
     cartModal.classList.remove('hidden');
@@ -265,14 +281,13 @@ checkoutModalBtn.onclick = () => {
     window.location.href = "{{ url('/checkout') }}";
 };
 
-// ======== Búsqueda ========
+
 document.getElementById('searchInput').oninput = e => {
     clearTimeout(window.searchTimer);
     searchTerm = e.target.value;
     window.searchTimer = setTimeout(loadProducts, 400);
 };
 
-// Inicializar
 loadBranches(); 
 loadCategories();
 loadProducts();

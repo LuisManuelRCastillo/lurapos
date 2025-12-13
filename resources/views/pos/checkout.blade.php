@@ -42,7 +42,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', san
     <div class="mb-4 flex gap-2">
         <button class="discount-btn px-4 py-2 bg-gray-100 rounded-lg font-bold hover:bg-gray-200" data-discount="0.05">5% </button>
         <button class="discount-btn px-4 py-2 bg-gray-100 rounded-lg font-bold hover:bg-gray-200" data-discount="0.10">10% </button>
-        <button class="discount-btn px-4 py-2 bg-gray-100 rounded-lg font-bold hover:bg-gray-200" data-discount="0.15">15% </button>
+        <!-- <button class="discount-btn px-4 py-2 bg-gray-100 rounded-lg font-bold hover:bg-gray-200" data-discount="0.15">15% </button> -->
     </div>
 
     <!-- Totales -->
