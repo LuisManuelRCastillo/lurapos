@@ -106,7 +106,7 @@
         let chartVentas, chartTop, chartMetodoPago;
 
         function cargarSucursales() {
-            fetch("/gvnmetepec/api/pos/branches", { credentials: "include" })
+            fetch("{{ url('/api/pos/branches') }}", { credentials: "include" })
                 .then(res => res.json())
                 .then(branches => {
                     const select = document.getElementById("branchSelect");
@@ -122,7 +122,7 @@
 
         function cargarDashboard(dateFrom = null, dateTo = null) {
             const branchId = document.getElementById("branchSelect").value;
-            let url = "/gvnmetepec/dashboard/data?";
+            let url = "{{ url('/dashboard/data') }}?";
             if (branchId) url += `branch_id=${branchId}&`;
             if (dateFrom && dateTo) url += `date_from=${dateFrom}&date_to=${dateTo}`;
 

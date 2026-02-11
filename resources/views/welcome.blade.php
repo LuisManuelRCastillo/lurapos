@@ -82,7 +82,7 @@
 </div>
 
 <script>
-const API_URL = "{{ url('https://luradev.com/gvnmetepec/api/pos') }}";
+const API_URL = "/api/pos";
 const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
 
 let products = [];
