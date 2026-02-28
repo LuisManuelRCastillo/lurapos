@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -10,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
  *
  * Columnas reales:
  *   id, codigo, producto, p_costo, p_venta, p_mayoreo,
- *   existencia, inv_min, inv_max, dpto, image, photo_verified, deleted_at
+ *   existencia, inv_min, inv_max, dpto
  *
  * Accesors para mantener compatibilidad con el resto del código:
  *   code          → codigo
@@ -25,7 +24,7 @@ use Illuminate\Database\Eloquent\Model;
  */
 class Product extends Model
 {
-    use SoftDeletes;
+    // SoftDeletes eliminado: la tabla 'productos' de rodcas no tiene columna deleted_at
 
     protected $table    = 'productos';
     public    $timestamps = false;   // la tabla rodcas no tiene created_at/updated_at
