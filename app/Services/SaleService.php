@@ -64,9 +64,9 @@ class SaleService
                     'total' => $item['total'],
                 ]);
                 
-                // Actualizar stock
+                // Actualizar stock (columna real en rodcas es 'existencia')
                 $stockBefore = $product->stock;
-                $product->decrement('stock', $item['quantity']);
+                $product->decrement('existencia', $item['quantity']);
                 $product->refresh();
                 
                 // Registrar movimiento de inventario
@@ -142,7 +142,7 @@ class SaleService
                 }
                 
                 $stockBefore = $product->stock;
-                $product->increment('stock', $detail->quantity);
+                $product->increment('existencia', $detail->quantity);
                 $product->refresh();
                 
                 // Registrar movimiento de devolución
@@ -205,7 +205,7 @@ class SaleService
      */
     public function getLowStockProducts()
     {
-        return Product::whereRaw('stock <= min_stock')
+        return Product::whereRaw('existencia <= inv_min')
             ->where('active', true)
             ->with('category')
             ->get();

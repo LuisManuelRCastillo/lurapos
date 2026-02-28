@@ -39,16 +39,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', san
     <input id="amountPaid" type="number" placeholder="Monto recibido" class="w-full p-3 mb-3 border rounded-lg">
 
     <!-- Descuentos -->
-    <div class="mb-4 flex gap-2">
+    <!-- <div class="mb-4 flex gap-2">
         <button class="discount-btn px-4 py-2 bg-gray-100 rounded-lg font-bold hover:bg-gray-200" data-discount="0.05">5% </button>
         <button class="discount-btn px-4 py-2 bg-gray-100 rounded-lg font-bold hover:bg-gray-200" data-discount="0.10">10% </button>
-        <!-- <button class="discount-btn px-4 py-2 bg-gray-100 rounded-lg font-bold hover:bg-gray-200" data-discount="0.15">15% </button> -->
-    </div>
+        <button class="discount-btn px-4 py-2 bg-gray-100 rounded-lg font-bold hover:bg-gray-200" data-discount="0.15">15% </button> 
+    </div> -->
 
     <!-- Totales -->
     <div id="summaryContainer" class="mb-4 space-y-1 font-bold"></div>
 
-    <button id="processSaleBtn" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700">
+    <button id="processSaleBtn" class="w-full bg-zinc-600 text-white py-3 rounded-lg font-bold hover:bg-zinc-700">
         Procesar Venta
     </button>
 </div>
@@ -88,8 +88,8 @@ function updateSummary() {
     summaryContainer.innerHTML = `
         <div>Subtotal: $${subtotal.toFixed(2)}</div>
         ${discount>0?`<div>Descuento ${discount*100}%: -$${(subtotal*discount).toFixed(2)}</div>`:''}
-        <div class="text-lg text-green-600 font-bold">TOTAL: $${total.toFixed(2)}</div>
-        ${amountPaid>=total?`<div class="text-green-600">Cambio: $${change.toFixed(2)}</div>`:''}
+        <div class="text-lg text-zinc-600 font-bold">TOTAL: $${total.toFixed(2)}</div>
+        ${amountPaid>=total?`<div class="text-zinc-600">Cambio: $${change.toFixed(2)}</div>`:''}
     `;
 }
 

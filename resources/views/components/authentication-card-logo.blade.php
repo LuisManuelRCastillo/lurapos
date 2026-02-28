@@ -1,1 +1,1 @@
- <img style="max-width: 100px;" src=" {{ asset('/assets/img/granvn-logosf.png') }}" alt="">
+ <img style="max-width: 100px;" src=" {{ asset('/assets/img/logoSF.png') }}" alt="">

@@ -58,14 +58,14 @@
 <div class="container">
     <div class="header">
         {{-- Si tienes un logo --}}
-        <img src=" {{ asset('/assets/img/granvn-logosf.png') }}" alt="Gran Villa Navideña Metepec">
-        <h2 style="color: #27702b">Gran Villa Navideña Metepec</h2>
+        <img src=" {{ asset('/assets/img/logoSF.png') }}" alt="Ferretería RODCAS">
+        <h2 style="color: #27702b">Ferretería RODCAS</h2>
     </div>
 
     <div class="message">
         <p>¡Hola {{ $sale->customer_name ?? 'Cliente' }}!</p>
         <p>
-            Gracias por tu compra🎉  
+            Gracias por tu compra en Ferretería RODCAS.  
             Aquí tienes tu comprobante de compra <strong>#{{ $sale->invoice_number }}</strong>.  
             En este correo encontrarás un resumen de tu pedido y un archivo PDF adjunto con todos los detalles.
         </p>
@@ -86,7 +86,7 @@
     </div>
 
     <div class="footer">
-        <p>© {{ date('Y') }} Gran Villa Navideña Metepec</p>
+        <p>© {{ date('Y') }} Ferretería RODCAS</p>
         <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
         
             <a style="color:#b82d16" href="https://luradev.com">LuraDev - Todos los derechos reservados -2025 </a>

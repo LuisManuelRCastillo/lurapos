@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php artisan:*)",
+      "Bash(findstr:*)",
+      "Bash(powershell -Command \"Get-Content .env | Select-String ''DB_|APP_NAME|APP_ENV''\")",
+      "Bash(php -r:*)",
+      "Bash(xargs grep -n \"DB::\\\\|table\\\\|create\\\\|insert\")",
+      "Bash(ls /c/Users/luism/Desktop/LuraPos/database/migrations/*.php)",
+      "Bash(mysql -u root -e \"SHOW TABLES FROM rodcas;\")",
+      "Bash(mysql -u root -proot -e \"SHOW TABLES FROM rodcas;\")",
+      "WebFetch(domain:tvmorelos.no-ip.info)"
+    ]
+  }
+}

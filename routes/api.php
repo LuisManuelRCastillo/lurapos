@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ProductsController;
+use App\Http\Controllers\PhotoController;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -19,6 +20,13 @@ Route::prefix('pos')->group(function () {
     Route::post('/sales/{id}/cancel', [ProductsController::class, 'cancelSale']);
     Route::post('/sales/{id}/resend', [ProductsController::class, 'resendReceipt']);
 
-    Route::post('/pos/products', [ProductController::class, 'store']);
+    Route::post('/pos/products', [ProductsController::class, 'store']);
+});
+
+// ─── Módulo de fotos ───────────────────────────────────────────────
+Route::prefix('fotos')->group(function () {
+    Route::get('/products',                    [PhotoController::class, 'getProducts']);
+    Route::post('/products/{id}/photo',        [PhotoController::class, 'savePhoto']);
+    Route::delete('/products/{id}/photo',      [PhotoController::class, 'deletePhoto']);
 });
 

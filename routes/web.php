@@ -24,8 +24,11 @@ Route::get('/dashboard/data', [ProductsController::class, 'getDashboardData'])->
 // routes/web.php - Para la vista principal
 Route::get('/pos', [ProductsController::class, 'index'])->name('pos.index');
 Route::get('/checkout', function() {
-    return view('pos.checkout'); 
+    return view('pos.checkout');
 });
+Route::get('/pos/receipt', function() {
+    return view('pos.receipt');
+})->name('pos.receipt');
 Route::get('/inventario', [ProductsController::class, 'inventoryView'])->name('inventory.view');
 
 Route::post('/products/store', [ProductsController::class, 'store'])->name('inventory.store');
@@ -34,6 +37,9 @@ Route::put('/inventory/{product}', [ProductsController::class, 'update'])->name(
 Route::delete('/inventory/{product}', [ProductsController::class, 'destroy'])->name('inventory.destroy');
 
 
+
+// Módulo de gestión de fotos
+Route::get('/fotos', [ProductsController::class, 'fotosView'])->name('fotos.view');
 
 Route::get('/test-email', function () {
     $sale = Sale::latest()->first(); // o crea una venta dummy si quieres

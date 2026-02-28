@@ -4,425 +4,404 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Product;
-use App\Models\Category;
 use App\Models\Sale;
 use App\Services\SaleService;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 
-
-
+/**
+ * Controlador adaptado a la BD rodcas.
+ *
+ * Tabla de productos: 'productos'
+ * Columnas: id, codigo, producto, p_costo, p_venta, p_mayoreo,
+ *           existencia, inv_min, inv_max, dpto, image, photo_verified
+ *
+ * 'dpto' actúa como categoría (texto libre, sin tabla categories).
+ */
 class ProductsController extends Controller
 {
-    //
-     protected $saleService;
-    
+    protected $saleService;
+
     public function __construct(SaleService $saleService)
     {
         $this->saleService = $saleService;
     }
-    
-    /**
-     * Mostrar vista principal del POS
-     */
+
+    // ─────────────────────────────────────────────────────────────────────
+    // VISTAS
+    // ─────────────────────────────────────────────────────────────────────
+
     public function index()
     {
         return view('welcome');
     }
-    public function getBranches(){
-        $branches = \App\Models\BranchModel::all();
-        return response()->json($branches); 
+
+    public function inventoryView()
+    {
+        // Departamentos únicos como "categorías"
+        $categories = DB::table('productos')
+            ->whereNotNull('dpto')
+            ->where('dpto', '!=', '')
+            ->distinct()
+            ->orderBy('dpto')
+            ->pluck('dpto');
+
+        $products = Product::orderBy('producto')->get();
+
+        return view('inventory', compact('categories', 'products'));
     }
+
+    public function fotosView()
+    {
+        return view('fotos');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // API POS
+    // ─────────────────────────────────────────────────────────────────────
+
     /**
-     * Obtener productos para el POS
+     * GET /api/pos/products
+     * Parámetros: search, category
      */
-  public function getProducts(Request $request)
-{
-    $query = Product::with('category')
-        ->where('active', 1);
+    public function getProducts(Request $request)
+    {
+        $query = Product::query();
 
-    // Filtro por búsqueda
-    if ($request->has('search') && $request->search) {
-        $search = $request->search;
-        $query->where(function ($q) use ($search) {
-            $q->where('name', 'like', "%{$search}%")
-              ->orWhere('code', 'like', "%{$search}%");
-        });
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where(function ($q) use ($s) {
+                $q->where('producto', 'like', "%{$s}%")
+                  ->orWhere('codigo',   'like', "%{$s}%");
+            });
+        }
+
+        if ($request->filled('category') && $request->category !== 'Todas') {
+            $query->where('dpto', $request->category);
+        }
+
+        $products = $query->get()->map(fn($p) => [
+            'id'       => $p->id,
+            'code'     => $p->codigo,
+            'name'     => trim($p->producto),
+            'category' => $p->dpto ?? 'Sin categoría',
+            'size'     => null,
+            'stock'    => (int) $p->existencia,
+            'price'    => (float) $p->p_venta,
+            'wholesale'=> (float) $p->p_mayoreo,
+            'cost'     => (float) $p->p_costo,
+            'image'    => $p->image,
+        ]);
+
+        return response()->json($products);
     }
 
-    // Filtro por categoría
-    if ($request->has('category') && $request->category !== 'Todas') {
-        $query->whereHas('category', function ($q) use ($request) {
-            $q->where('name', $request->category);
-        });
-    }
-
-    $products = $query->get()->map(function ($product) {
-        return [
-            'id' => $product->id,
-            'code' => $product->code,
-            'name' => $product->name,
-            'category' => optional($product->category)->name ?? 'Sin categoría',
-            'size' => $product->size,
-            'stock' => $product->stock,
-            'price' => (float) $product->sale_price,
-            'cost' => (float) $product->cost_price,
-        ];
-    });
-
-    return response()->json($products);
-}
-
-    
     /**
-     * Obtener categorías
+     * GET /api/pos/categories
+     * Devuelve los departamentos únicos como si fueran categorías.
      */
     public function getCategories()
     {
-        $categories = Category::where('active', true)
-            ->orderBy('name')
-            ->pluck('name');
-            
-        return response()->json(['Todas', ...$categories]);
+        $dptos = DB::table('productos')
+            ->whereNotNull('dpto')
+            ->where('dpto', '!=', '')
+            ->where('dpto', '!=', 'N/A')
+            ->distinct()
+            ->orderBy('dpto')
+            ->pluck('dpto');
+
+        return response()->json(['Todas', ...$dptos]);
     }
-    
+
     /**
-     * Procesar venta
+     * GET /api/pos/branches
      */
-    // ProductsController.php
+    public function getBranches()
+    {
+        // rodcas no tiene tabla branches todavía; devolvemos una sucursal por defecto
+        return response()->json([
+            ['id' => 1, 'name' => 'Sucursal Principal', 'code' => 'MAIN'],
+        ]);
+    }
 
-   
-public function processSale(Request $request)
-{
-    $validated = $request->validate([
-        'customer_name' => 'nullable|string|max:255',
-        'customer_email' => 'nullable|email',
-        'payment_method' => 'required|in:efectivo,tarjeta,transferencia,mixto',
-        'amount_paid' => 'required|numeric|min:0',
-        'change_amount' => 'nullable|numeric|min:0',
-        'subtotal' => 'required|numeric|min:0',
-        'discount' => 'nullable|numeric|min:0',
-        'total' => 'required|numeric|min:0',
-        'items' => 'required|array|min:1',
-        'items.*.product_id' => 'required|exists:products,id',
-        'items.*.quantity' => 'required|integer|min:1',
-        'items.*.unit_price' => 'required|numeric|min:0',
-        'items.*.total' => 'required|numeric|min:0',
-        'branch_id' => 'required|exists:branches,id',
-    ]);
+    // ─────────────────────────────────────────────────────────────────────
+    // VENTAS
+    // ─────────────────────────────────────────────────────────────────────
 
-    try {
-        $sale = $this->saleService->processSale([
-            'customer_name' => $validated['customer_name'] ?? 'Cliente',
-            'customer_id' => null,
-            'subtotal' => $validated['subtotal'],
-            'discount' => $validated['discount'] ?? 0,
-            'total' => $validated['total'],
-            'payment_method' => $validated['payment_method'],
-            'amount_paid' => $validated['amount_paid'],
-            'change_amount' => $validated['change_amount'] ?? 0,
-            'items' => $validated['items'],
-            'branch_id' => $validated['branch_id'],
+    public function processSale(Request $request)
+    {
+        $validated = $request->validate([
+            'customer_name'        => 'nullable|string|max:255',
+            'customer_email'       => 'nullable|email',
+            'payment_method'       => 'required|in:efectivo,tarjeta,transferencia,mixto',
+            'amount_paid'          => 'required|numeric|min:0',
+            'change_amount'        => 'nullable|numeric|min:0',
+            'subtotal'             => 'required|numeric|min:0',
+            'discount'             => 'nullable|numeric|min:0',
+            'total'                => 'required|numeric|min:0',
+            'items'                => 'required|array|min:1',
+            'items.*.product_id'   => 'required|exists:productos,id',
+            'items.*.quantity'     => 'required|integer|min:1',
+            'items.*.unit_price'   => 'required|numeric|min:0',
+            'items.*.total'        => 'required|numeric|min:0',
+            'branch_id'            => 'nullable|integer',
         ]);
 
-        $emailSent = false;
+        try {
+            $sale = $this->saleService->processSale([
+                'customer_name'  => $validated['customer_name'] ?? 'Cliente',
+                'customer_id'    => null,
+                'subtotal'       => $validated['subtotal'],
+                'discount'       => $validated['discount'] ?? 0,
+                'total'          => $validated['total'],
+                'payment_method' => $validated['payment_method'],
+                'amount_paid'    => $validated['amount_paid'],
+                'change_amount'  => $validated['change_amount'] ?? 0,
+                'items'          => $validated['items'],
+                'branch_id'      => $validated['branch_id'] ?? null,
+            ]);
 
-        if (!empty($validated['customer_email'])) {
-            try {
-                $customer = \App\Models\Customer::firstOrCreate(
-                    ['email' => $validated['customer_email']],
-                    ['name' => $validated['customer_name'] ?? 'Cliente']
-                );
-                $sale->update(['customer_id' => $customer->id]);
-                $sale = $sale->load('details.product', 'branch');
-                 $pdf = Pdf::loadView('emails.pdf-comprobant', compact('sale')); // aquí pones tu vista del PDF
-        $pdfData = $pdf->output();
+            $emailSent = false;
 
-                \Mail::to($validated['customer_email'])->send(new \App\Mail\SaleReceipt($sale, $pdfData));
-                $emailSent = true;
-                $sale->update(['email_sent' => true]);
-            } catch (\Exception $e) {
-                \Log::error("Error enviando comprobante: " . $e->getMessage());
+            if (!empty($validated['customer_email'])) {
+                try {
+                    $customer = \App\Models\Customer::firstOrCreate(
+                        ['email' => $validated['customer_email']],
+                        ['name'  => $validated['customer_name'] ?? 'Cliente']
+                    );
+                    $sale->update(['customer_id' => $customer->id]);
+                    $sale    = $sale->load('details');
+                    $pdf     = Pdf::loadView('emails.pdf-comprobant', compact('sale'));
+                    $pdfData = $pdf->output();
+
+                    \Mail::to($validated['customer_email'])
+                         ->send(new \App\Mail\SaleReceipt($sale, $pdfData));
+                    $emailSent = true;
+                    $sale->update(['email_sent' => true]);
+                } catch (\Exception $e) {
+                    \Log::error("Error enviando comprobante: " . $e->getMessage());
+                }
             }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Venta procesada exitosamente',
+                'data'    => [
+                    'invoice_number' => $sale->invoice_number,
+                    'customer_name'  => $sale->customer->name ?? 'Cliente',
+                    'total'          => $sale->total,
+                    'change'         => $sale->change_amount,
+                    'email_sent'     => $emailSent,
+                ],
+            ], 201);
+
+        } catch (\Exception $e) {
+            \Log::error('Error al procesar venta: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al procesar venta: ' . $e->getMessage(),
+            ], 422);
         }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Venta procesada exitosamente',
-            'data' => [
-                'invoice_number' => $sale->invoice_number,
-                'customer_name' => $sale->customer->name ?? 'Cliente',
-                'total' => $sale->total,
-                'change' => $sale->change_amount,
-                'email_sent' => $emailSent,
-            ]
-        ], 201);
-
-    } catch (\Exception $e) {
-        \Log::error('Error al procesar venta: ' . $e->getMessage());
-        return response()->json([
-            'success' => false,
-            'message' => 'Error al procesar venta: ' . $e->getMessage()
-        ], 422);
     }
-}
 
-
-    /**
-     * Obtener historial de ventas
-     */
     public function getSales(Request $request)
     {
-        $query = Sale::with(['user', 'customer', 'details.product'])
-            ->orderBy('sale_date', 'desc');
-        
-        // Filtro por fecha
+        $query = Sale::with(['user', 'customer'])->orderBy('sale_date', 'desc');
+
         if ($request->has('date_from')) {
             $query->whereDate('sale_date', '>=', $request->date_from);
         }
-        
         if ($request->has('date_to')) {
             $query->whereDate('sale_date', '<=', $request->date_to);
         }
-        
-        // Filtro por estado
         if ($request->has('status')) {
             $query->where('status', $request->status);
         }
-        
-        $sales = $query->paginate($request->get('per_page', 20));
-        
-        return response()->json($sales);
+
+        return response()->json($query->paginate($request->get('per_page', 20)));
     }
-    
-    /**
-     * Obtener detalle de venta
-     */
+
     public function getSale($id)
     {
-        $sale = Sale::with(['user', 'customer', 'details.product.category'])
-            ->findOrFail($id);
-            
-        
+        $sale = Sale::with(['user', 'customer', 'details'])->findOrFail($id);
         return response()->json($sale);
     }
-    
-    /**
-     * Cancelar venta
-     */
+
     public function cancelSale($id)
     {
         try {
             $sale = Sale::findOrFail($id);
-            
+
             if ($sale->status === 'cancelada') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'La venta ya está cancelada'
-                ], 422);
+                return response()->json(['success' => false, 'message' => 'La venta ya está cancelada'], 422);
             }
-            
+
             $this->saleService->cancelSale($sale);
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Venta cancelada exitosamente'
-            ]);
-            
+
+            return response()->json(['success' => true, 'message' => 'Venta cancelada exitosamente']);
+
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al cancelar venta: ' . $e->getMessage()
-            ], 422);
+            return response()->json(['success' => false, 'message' => 'Error al cancelar venta: ' . $e->getMessage()], 422);
         }
     }
-    
-    /**
-     * Reenviar comprobante
-     */
+
     public function resendReceipt($id, Request $request)
     {
-        $validated = $request->validate([
-            'email' => 'required|email'
-        ]);
-        
+        $validated = $request->validate(['email' => 'required|email']);
+
         try {
-            $sale = Sale::findOrFail($id);
-            
-            // Actualizar o crear cliente
+            $sale     = Sale::findOrFail($id);
             $customer = \App\Models\Customer::firstOrCreate(
                 ['email' => $validated['email']],
-                ['name' => 'Cliente']
+                ['name'  => 'Cliente']
             );
-            
             $sale->update(['customer_id' => $customer->id]);
-            
             $sent = $this->saleService->sendReceipt($sale);
-            
-            if ($sent) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Comprobante enviado exitosamente'
-                ]);
-            } else {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Error al enviar el comprobante'
-                ], 422);
-            }
-            
-        } catch (\Exception $e) {
+
             return response()->json([
-                'success' => false,
-                'message' => 'Error: ' . $e->getMessage()
-            ], 422);
+                'success' => $sent,
+                'message' => $sent ? 'Comprobante enviado exitosamente' : 'Error al enviar el comprobante',
+            ], $sent ? 200 : 422);
+
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Error: ' . $e->getMessage()], 422);
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // DASHBOARD
+    // ─────────────────────────────────────────────────────────────────────
+
     public function dashboard(Request $request)
-{
-    if ($request->ajax()) {
-        return response()->json($this->getDashboardData($request));
+    {
+        if ($request->ajax()) {
+            return $this->getDashboardData($request);
+        }
+        return view('dashboard');
     }
 
-    return view('dashboard');
-}
-    /**
-     * Dashboard de estadísticas
-     */
-public function getDashboardData(Request $request)
-{
-    $branchId = $request->get('branch_id');
-
-    $startDate = $request->get('date_from', today());
-    $endDate = $request->get('date_to', today()->copy()->addDay());
-
-    $startDate = Carbon::parse($startDate)->startOfDay();
-    $endDate = Carbon::parse($endDate)->endOfDay();
-
-    $salesQuery = Sale::where('status', 'completada')
-        ->whereBetween('sale_date', [$startDate, $endDate])
-        ->when($branchId, fn($q) => $q->where('branch_id', $branchId));
-
-    $stats = [
-        'total_sales' => $salesQuery->sum('total'),
-
-        'transactions_count' => $salesQuery->count(),
-
-        'average_ticket' => $salesQuery->avg('total'),
-
-        'low_stock_products' => Product::whereColumn('stock', '<=', 'min_stock')->count(),
-
-        'daily_sales' => Sale::where('status', 'completada')
-            ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
-            ->selectRaw('DATE(sale_date) as date, SUM(total) as total')
-            ->groupBy('date')
-            ->orderBy('date')
-            ->get(),
-
-        'top_products' => DB::table('sale_details')
-            ->join('products', 'sale_details.product_id', '=', 'products.id')
-            ->join('sales', 'sale_details.sale_id', '=', 'sales.id')
-            ->whereBetween('sales.sale_date', [$startDate, $endDate])
-            ->where('sales.status', 'completada')
-            ->when($branchId, fn($q) => $q->where('sales.branch_id', $branchId))
-            ->selectRaw('products.name, SUM(sale_details.quantity) as total_sold, SUM(sale_details.total) as revenue')
-            ->groupBy('products.id', 'products.name')
-            ->orderByDesc('total_sold')
-            ->limit(5)
-            ->get(),
-
-        'sales_by_method' => $salesQuery
-            ->selectRaw('payment_method, COUNT(*) as count, SUM(total) as total')
-            ->groupBy('payment_method')
-            ->get(),
-
-        'sales_detail' => DB::table('sales')
-            ->join('sale_details', 'sales.id', '=', 'sale_details.sale_id')
-            ->join('products', 'sale_details.product_id', '=', 'products.id')
-            ->whereBetween('sales.sale_date', [$startDate, $endDate])
-            ->where('sales.status', 'completada')
-            ->when($branchId, fn($q) => $q->where('sales.branch_id', $branchId))
-            ->select(
-                'sales.id',
-                'sales.sale_date',
-                'sales.payment_method',
-                DB::raw('SUM(sale_details.quantity) as total_quantity'),
-                DB::raw('SUM(sale_details.total) as total_amount'),
-                DB::raw('GROUP_CONCAT(CONCAT(products.name, " (x", sale_details.quantity, ")") SEPARATOR ", ") as products')
-            )
-            ->groupBy('sales.id', 'sales.sale_date', 'sales.payment_method')
-            ->orderBy('sales.sale_date', 'desc')
-            ->get(),
-    ];
-
-    return response()->json($stats);
-}
-
-
-    public function inventoryView()
-{
-    $categories = \App\Models\Category::all();
-    $products = \App\Models\Product::all(); 
-    return view('inventory', compact('categories', 'products'));
-}
-    public function store(Request $request)
-{
-    $validated = $request->validate([
-        'code' => 'required|string|max:50|unique:products,code',
-        'category_id' => 'required|exists:categories,id',
-        'name' => 'required|string|max:200',
-        'size' => 'nullable|string|max:50',
-        'stock' => 'required|integer|min:0',
-        'min_stock' => 'required|integer|min:0',
-        'cost_price' => 'required|numeric|min:0',
-        'estimated_price' => 'nullable|numeric|min:0',
-        'sale_price' => 'required|numeric|min:0',
-        'description' => 'nullable|string',
-        'image' => 'nullable|string',
-        'active' => 'boolean',
-    ]);
-
-    $product = Product::create($validated);
-
-    $products = \App\Models\Product::all();
-
-    $categories = \App\Models\Category::all();
-    return view('inventory', compact('categories', 'products'));
-}
- public function edit(Product $product)
+    public function getDashboardData(Request $request)
     {
-        $categories = Category::orderBy('name')->get();
-        $products = Product::all();
+        $branchId  = $request->get('branch_id');
+        $startDate = Carbon::parse($request->get('date_from', today()))->startOfDay();
+        $endDate   = Carbon::parse($request->get('date_to',   today()))->endOfDay();
+
+        $salesQuery = Sale::where('status', 'completada')
+            ->whereBetween('sale_date', [$startDate, $endDate])
+            ->when($branchId, fn($q) => $q->where('branch_id', $branchId));
+
+        $stats = [
+            'total_sales'        => (clone $salesQuery)->sum('total'),
+            'transactions_count' => (clone $salesQuery)->count(),
+            'average_ticket'     => (clone $salesQuery)->avg('total'),
+
+            // Stock bajo usando columnas reales de rodcas
+            'low_stock_products' => DB::table('productos')
+                ->whereRaw('existencia <= inv_min')
+                ->whereNull('deleted_at')
+                ->count(),
+
+            'daily_sales' => Sale::where('status', 'completada')
+                ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+                ->selectRaw('DATE(sale_date) as date, SUM(total) as total')
+                ->groupBy('date')
+                ->orderBy('date')
+                ->get(),
+
+            // Top productos usando la tabla real 'productos'
+            'top_products' => DB::table('sale_details')
+                ->join('productos', 'sale_details.product_id', '=', 'productos.id')
+                ->join('sales',     'sale_details.sale_id',    '=', 'sales.id')
+                ->whereBetween('sales.sale_date', [$startDate, $endDate])
+                ->where('sales.status', 'completada')
+                ->when($branchId, fn($q) => $q->where('sales.branch_id', $branchId))
+                ->selectRaw('productos.producto as name, SUM(sale_details.quantity) as total_sold, SUM(sale_details.total) as revenue')
+                ->groupBy('productos.id', 'productos.producto')
+                ->orderByDesc('total_sold')
+                ->limit(5)
+                ->get(),
+
+            'sales_by_method' => (clone $salesQuery)
+                ->selectRaw('payment_method, COUNT(*) as count, SUM(total) as total')
+                ->groupBy('payment_method')
+                ->get(),
+
+            'sales_detail' => DB::table('sales')
+                ->join('sale_details', 'sales.id',           '=', 'sale_details.sale_id')
+                ->join('productos',    'sale_details.product_id', '=', 'productos.id')
+                ->whereBetween('sales.sale_date', [$startDate, $endDate])
+                ->where('sales.status', 'completada')
+                ->when($branchId, fn($q) => $q->where('sales.branch_id', $branchId))
+                ->select(
+                    'sales.id',
+                    'sales.sale_date',
+                    'sales.payment_method',
+                    DB::raw('SUM(sale_details.quantity) as total_quantity'),
+                    DB::raw('SUM(sale_details.total) as total_amount'),
+                    DB::raw('GROUP_CONCAT(CONCAT(productos.producto, " (x", sale_details.quantity, ")") SEPARATOR ", ") as products')
+                )
+                ->groupBy('sales.id', 'sales.sale_date', 'sales.payment_method')
+                ->orderBy('sales.sale_date', 'desc')
+                ->get(),
+        ];
+
+        return response()->json($stats);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CRUD INVENTARIO (adaptado a columnas de rodcas)
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'codigo'     => 'required|string|max:255|unique:productos,codigo',
+            'producto'   => 'required|string|max:255',
+            'dpto'       => 'nullable|string|max:255',
+            'existencia' => 'required|integer|min:0',
+            'inv_min'    => 'required|integer|min:0',
+            'inv_max'    => 'nullable|integer|min:0',
+            'p_costo'    => 'required|numeric|min:0',
+            'p_venta'    => 'required|numeric|min:0',
+            'p_mayoreo'  => 'nullable|numeric|min:0',
+        ]);
+
+        Product::create($validated);
+
+        return redirect()->route('inventory.view')->with('success', 'Producto agregado correctamente.');
+    }
+
+    public function edit(Product $product)
+    {
+        $categories = DB::table('productos')
+            ->whereNotNull('dpto')->where('dpto', '!=', '')
+            ->distinct()->orderBy('dpto')->pluck('dpto');
+        $products = Product::orderBy('producto')->get();
         return view('inventory', compact('products', 'categories'));
     }
 
     public function update(Request $request, Product $product)
     {
         $request->validate([
-            'code' => "required|unique:products,code,{$product->id}",
-            'name' => 'required|string',
-            'category_id' => 'required|exists:categories,id',
-            'cost_price' => 'required|numeric|min:0',
-            'sale_price' => 'required|numeric|min:0',
+            'codigo'  => "required|unique:productos,codigo,{$product->id}",
+            'producto'=> 'required|string',
+            'p_costo' => 'required|numeric|min:0',
+            'p_venta' => 'required|numeric|min:0',
         ]);
-        $categories = Category::all();
-        $product->update($request->all());
 
-        $products = Product::all(); 
+        $product->update($request->only([
+            'codigo', 'producto', 'dpto',
+            'existencia', 'inv_min', 'inv_max',
+            'p_costo', 'p_venta', 'p_mayoreo',
+        ]));
 
-        return view('inventory', compact('categories', 'products'))->with('success', 'Producto actualizado correctamente.');
+        return redirect()->route('inventory.view')->with('success', 'Producto actualizado correctamente.');
     }
 
     public function destroy(Product $product)
     {
         $product->delete();
-
-          $categories = \App\Models\Category::all();
-    $products = \App\Models\Product::all(); 
-    return view('inventory', compact('categories', 'products'));
+        return redirect()->route('inventory.view')->with('success', 'Producto eliminado.');
     }
-
-
-
 }
