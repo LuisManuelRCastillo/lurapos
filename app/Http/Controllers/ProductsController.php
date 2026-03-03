@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Product;
 use App\Models\Sale;
+use App\Models\Customer;
+use App\Models\CashMovement;
+use App\Models\Credit;
 use App\Services\SaleService;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -134,7 +137,7 @@ class ProductsController extends Controller
         $validated = $request->validate([
             'customer_name'        => 'nullable|string|max:255',
             'customer_email'       => 'nullable|email',
-            'payment_method'       => 'required|in:efectivo,tarjeta,transferencia,mixto',
+            'payment_method'       => 'required|in:efectivo,tarjeta,transferencia,mixto,credito',
             'amount_paid'          => 'required|numeric|min:0',
             'change_amount'        => 'nullable|numeric|min:0',
             'subtotal'             => 'required|numeric|min:0',
@@ -145,13 +148,14 @@ class ProductsController extends Controller
             'items.*.quantity'     => 'required|integer|min:1',
             'items.*.unit_price'   => 'required|numeric|min:0',
             'items.*.total'        => 'required|numeric|min:0',
+            'customer_id'          => 'nullable|integer|exists:customers,id',
             'branch_id'            => 'nullable|integer',
         ]);
 
         try {
             $sale = $this->saleService->processSale([
                 'customer_name'  => $validated['customer_name'] ?? 'Cliente',
-                'customer_id'    => null,
+                'customer_id'    => $validated['customer_id'] ?? null,
                 'subtotal'       => $validated['subtotal'],
                 'discount'       => $validated['discount'] ?? 0,
                 'total'          => $validated['total'],
@@ -403,5 +407,157 @@ class ProductsController extends Controller
     {
         $product->delete();
         return redirect()->route('inventory.view')->with('success', 'Producto eliminado.');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CLIENTES
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function searchCustomers(Request $request)
+    {
+        $search = trim($request->get('search', ''));
+
+        $query = Customer::query()->orderBy('name')->limit(10);
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name',  'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+
+        return response()->json($query->get(['id', 'name', 'phone']));
+    }
+
+    public function storeCustomer(Request $request)
+    {
+        $validated = $request->validate([
+            'name'  => 'required|string|max:150',
+            'phone' => 'nullable|string|max:20',
+            'email' => 'nullable|email|max:150',
+        ]);
+
+        $customer = Customer::create($validated);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $customer->only(['id', 'name', 'phone']),
+        ], 201);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // MOVIMIENTOS DE EFECTIVO
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function storeCashMovement(Request $request)
+    {
+        $validated = $request->validate([
+            'type'      => 'nullable|in:entrada,salida',
+            'concept'   => 'required|string|max:255',
+            'amount'    => 'required|numeric|min:0.01',
+            'notes'     => 'nullable|string|max:500',
+            'branch_id' => 'nullable|integer',
+        ]);
+
+        $validated['type'] = $validated['type'] ?? 'salida';
+
+        $movement = CashMovement::create($validated);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $movement,
+        ], 201);
+    }
+
+    public function getCashMovements(Request $request)
+    {
+        $query = CashMovement::orderBy('created_at', 'desc');
+
+        if ($request->filled('date')) {
+            $query->whereDate('created_at', $request->date);
+        }
+
+        if ($request->filled('branch_id')) {
+            $query->where('branch_id', $request->branch_id);
+        }
+
+        return response()->json($query->limit(100)->get());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CRÉDITOS (cuentas por cobrar)
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function getCredits(Request $request)
+    {
+        $query = Credit::with('sale:id,invoice_number,sale_date')
+            ->orderBy('created_at', 'desc');
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        } else {
+            $query->where('status', 'pendiente');
+        }
+
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where(function ($q) use ($s) {
+                $q->where('customer_name', 'like', "%{$s}%")
+                  ->orWhereHas('sale', fn($sq) => $sq->where('invoice_number', 'like', "%{$s}%"));
+            });
+        }
+
+        return response()->json($query->limit(100)->get()->map(fn($c) => [
+            'id'              => $c->id,
+            'sale_id'         => $c->sale_id,
+            'invoice_number'  => $c->sale->invoice_number ?? '-',
+            'sale_date'       => $c->sale?->sale_date,
+            'customer_id'     => $c->customer_id,
+            'customer_name'   => $c->customer_name,
+            'original_amount' => (float) $c->original_amount,
+            'paid_amount'     => (float) $c->paid_amount,
+            'remaining'       => $c->remaining,
+            'status'          => $c->status,
+            'created_at'      => $c->created_at,
+        ]));
+    }
+
+    public function payCredit($id, Request $request)
+    {
+        $validated = $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'notes'  => 'nullable|string|max:255',
+        ]);
+
+        $credit = Credit::findOrFail($id);
+
+        if ($credit->status === 'pagado') {
+            return response()->json(['success' => false, 'message' => 'Este crédito ya está liquidado'], 422);
+        }
+
+        $newPaid = (float) $credit->paid_amount + (float) $validated['amount'];
+
+        if ($newPaid > (float) $credit->original_amount) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El abono supera el saldo restante ($' . number_format($credit->remaining, 2) . ')',
+            ], 422);
+        }
+
+        $status = $newPaid >= (float) $credit->original_amount ? 'pagado' : 'pendiente';
+
+        $credit->update([
+            'paid_amount' => $newPaid,
+            'status'      => $status,
+            'notes'       => $validated['notes'] ?? $credit->notes,
+        ]);
+
+        return response()->json([
+            'success'   => true,
+            'status'    => $status,
+            'paid'      => $newPaid,
+            'remaining' => $credit->fresh()->remaining,
+            'message'   => $status === 'pagado' ? 'Crédito liquidado' : 'Abono registrado',
+        ]);
     }
 }

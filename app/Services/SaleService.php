@@ -6,6 +6,7 @@ use App\Models\Sale;
 use App\Models\SaleDetail;
 use App\Models\Product;
 use App\Models\InventoryMovement;
+use App\Models\Credit;
 use App\Mail\SaleReceipt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -83,10 +84,22 @@ class SaleService
                 ]);
             }
             
+            // Si el pago es a crédito, crear registro de crédito pendiente
+            if ($data['payment_method'] === 'credito') {
+                Credit::create([
+                    'sale_id'         => $sale->id,
+                    'customer_id'     => $data['customer_id'] ?? null,
+                    'customer_name'   => $data['customer_name'] ?? 'Cliente',
+                    'original_amount' => $data['total'],
+                    'paid_amount'     => 0,
+                    'status'          => 'pendiente',
+                ]);
+            }
+
             DB::commit();
-            
+
             return $sale;
-            
+
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error procesando venta: ' . $e->getMessage());

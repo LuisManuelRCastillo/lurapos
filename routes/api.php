@@ -14,11 +14,19 @@ Route::prefix('pos')->group(function () {
     Route::get('/branches', [ProductsController::class, 'getBranches']);
     Route::get('/products', [ProductsController::class, 'getProducts']);
     Route::get('/categories', [ProductsController::class, 'getCategories']);
+    Route::get('/customers', [ProductsController::class, 'searchCustomers']);
+    Route::post('/customers', [ProductsController::class, 'storeCustomer']);
     Route::post('/sales', [ProductsController::class, 'processSale']);
     Route::get('/sales', [ProductsController::class, 'getSales']);
     Route::get('/sales/{id}', [ProductsController::class, 'getSale']);
     Route::post('/sales/{id}/cancel', [ProductsController::class, 'cancelSale']);
     Route::post('/sales/{id}/resend', [ProductsController::class, 'resendReceipt']);
+
+    Route::get('/cash-movements',  [ProductsController::class, 'getCashMovements']);
+    Route::post('/cash-movements', [ProductsController::class, 'storeCashMovement']);
+
+    Route::get('/credits',          [ProductsController::class, 'getCredits']);
+    Route::post('/credits/{id}/pay',[ProductsController::class, 'payCredit']);
 
     Route::post('/pos/products', [ProductsController::class, 'store']);
 });

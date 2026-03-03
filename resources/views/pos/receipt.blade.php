@@ -107,8 +107,28 @@ window.onload = function () {
         : '';
 
     /* ── Método pago ─────────────────────────── */
-    const metodos = { efectivo: 'EFECTIVO', tarjeta: 'TARJETA', transferencia: 'TRANSFER.' };
-    const metodo  = metodos[d.payment_method] || d.payment_method.toUpperCase();
+    const esCredito = d.payment_method === 'credito';
+    const metodos   = {
+        efectivo      : 'EFECTIVO',
+        tarjeta       : 'TARJETA',
+        transferencia : 'TRANSFER.',
+        mixto         : 'MIXTO',
+        credito       : 'CRÉDITO',
+    };
+    const metodo = metodos[d.payment_method] || d.payment_method.toUpperCase();
+
+    /* ── Sección de pago (diferente para crédito) ─ */
+    const pagoHtml = esCredito
+        ? `<div class="tot-row bold" style="font-size:10px">
+               <span>VENTA A CRÉDITO</span><span></span>
+           </div>
+           <div class="tot-row">
+               <span>DEBE:</span>
+               <span>$${Number(d.total).toFixed(2)}</span>
+           </div>
+           <div class="center sm" style="margin-top:3px">* Pendiente de pago *</div>`
+        : `<div class="tot-row"><span>${metodo}</span><span>$${Number(d.amount_paid).toFixed(2)}</span></div>
+           ${cambioHtml}`;
 
     /* ── Render ──────────────────────────────── */
     receipt.innerHTML = `
@@ -146,8 +166,7 @@ window.onload = function () {
         <hr class="sep2">
 
         <!-- PAGO -->
-        <div class="tot-row"><span>${metodo}</span><span>$${Number(d.amount_paid).toFixed(2)}</span></div>
-        ${cambioHtml}
+        ${pagoHtml}
 
         <!-- PIE -->
         <hr class="sep2" style="margin-top:5px">
