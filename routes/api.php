@@ -28,7 +28,13 @@ Route::prefix('pos')->group(function () {
     Route::get('/credits',          [ProductsController::class, 'getCredits']);
     Route::post('/credits/{id}/pay',[ProductsController::class, 'payCredit']);
 
-    Route::post('/pos/products', [ProductsController::class, 'store']);
+    // ── Inventario CRUD + entrada de mercancía ────────────────────────
+    Route::get('/products/{id}',            [ProductsController::class, 'getProduct']);
+    Route::post('/products',                [ProductsController::class, 'storeProduct']);
+    Route::put('/products/{id}',            [ProductsController::class, 'updateProduct']);
+    Route::delete('/products/{id}',         [ProductsController::class, 'deleteProduct']);
+    Route::post('/products/{id}/entrada',   [ProductsController::class, 'stockEntry']);
+    Route::get('/inventory-movements',      [ProductsController::class, 'getInventoryMovements']);
 });
 
 // ─── Módulo de fotos ───────────────────────────────────────────────

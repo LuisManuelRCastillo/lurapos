@@ -236,6 +236,19 @@
                     </span>
                 </div>
 
+                <div class="relative group">
+                    <a href="/inventario" target="_blank"
+                       class="w-9 h-9 flex items-center justify-center rounded-lg
+                              text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors">
+                        <i class="fa-solid fa-boxes-stacked text-sm"></i>
+                    </a>
+                    <span class="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2
+                                 bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap
+                                 opacity-0 group-hover:opacity-100 transition-opacity z-50">
+                        Gestión de inventario
+                    </span>
+                </div>
+
             </div>
         </div>
     </aside>
@@ -289,6 +302,13 @@
                     <i class="fa-solid fa-clock-rotate-left text-base"></i>
                     <span class="text-xs leading-none" style="font-size:9px">Historial</span>
                 </button>
+
+                <a href="/inventario" target="_blank"
+                   class="flex flex-col items-center gap-0.5 text-gray-400 hover:text-emerald-600
+                          w-14 py-1.5 rounded-lg hover:bg-emerald-50 transition-colors">
+                    <i class="fa-solid fa-boxes-stacked text-base"></i>
+                    <span class="text-xs leading-none" style="font-size:9px">Inventario</span>
+                </a>
 
             </div>
         </div>
@@ -1810,17 +1830,31 @@ function renderHistory(sales) {
                 <p class="text-xs text-gray-400 truncate">${clientName}</p>
             </div>
             <div class="text-right shrink-0 flex flex-col items-end gap-1">
-                <p class="text-sm font-black text-gray-800">$${Number(sale.total).toFixed(2)}</p>
+                <p class="text-sm font-black text-gray-800${cancelled ? ' line-through text-gray-400' : ''}">
+                    $${Number(sale.total).toFixed(2)}
+                </p>
                 <button class="btn-reprint-hist text-xs text-zinc-500 hover:text-zinc-700 font-semibold
                                flex items-center gap-1 transition-colors"
                         data-id="${sale.id}">
                     <i class="fa-solid fa-print text-xs"></i> Reimprimir
                 </button>
+                ${!cancelled ? `
+                <button class="btn-cancel-hist text-xs text-red-400 hover:text-red-600 font-semibold
+                               flex items-center gap-1 transition-colors"
+                        data-id="${sale.id}" data-invoice="${sale.invoice_number}">
+                    <i class="fa-solid fa-ban text-xs"></i> Cancelar
+                </button>` : ''}
             </div>`;
 
         row.querySelector('.btn-reprint-hist').onclick = function() {
             reprintFromHistory(sale.id, this);
         };
+
+        if (!cancelled) {
+            row.querySelector('.btn-cancel-hist').onclick = function() {
+                cancelSaleFromHistory(sale.id, sale.invoice_number, row);
+            };
+        }
 
         list.appendChild(row);
     });
@@ -1865,6 +1899,59 @@ async function reprintFromHistory(saleId, btn) {
     } finally {
         btn.disabled = false;
         btn.innerHTML = orig;
+    }
+}
+
+async function cancelSaleFromHistory(saleId, invoiceNumber, rowEl) {
+    const result = await Swal.fire({
+        title            : `¿Cancelar venta ${invoiceNumber}?`,
+        html             : `<span class="text-sm text-gray-500">Se restaurará el stock de todos los artículos.<br>Esta acción <b>no se puede deshacer</b>.</span>`,
+        icon             : 'warning',
+        showCancelButton : true,
+        confirmButtonText: 'Sí, cancelar venta',
+        cancelButtonText : 'No, mantener',
+        confirmButtonColor: '#dc2626',
+        reverseButtons   : true,
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+        await api(`/sales/${saleId}/cancel`, { method: 'POST' });
+
+        /* Marcar fila visualmente como cancelada */
+        rowEl.classList.add('opacity-40');
+        const cancelBtn = rowEl.querySelector('.btn-cancel-hist');
+        if (cancelBtn) cancelBtn.remove();
+
+        /* Añadir badge cancelada */
+        const badges = rowEl.querySelector('.flex.items-center.gap-1\\.5');
+        if (badges) {
+            const badge = document.createElement('span');
+            badge.className = 'text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-semibold';
+            badge.textContent = 'Cancelada';
+            badges.appendChild(badge);
+        }
+
+        /* Tachado del total */
+        const totalEl = rowEl.querySelector('.text-sm.font-black');
+        if (totalEl) totalEl.classList.add('line-through', 'text-gray-400');
+
+        /* Recargar productos en el POS (stock actualizado) */
+        loadProducts();
+
+        Swal.fire({
+            icon             : 'success',
+            title            : 'Venta cancelada',
+            text             : `${invoiceNumber} fue cancelada y el inventario fue restaurado.`,
+            timer            : 2500,
+            showConfirmButton: false,
+        });
+
+    } catch(e) {
+        let msg = e.message;
+        try { msg = JSON.parse(e.message).message || msg; } catch {}
+        Swal.fire({ icon: 'error', title: 'Error', text: msg });
     }
 }
 
@@ -1939,14 +2026,14 @@ document.addEventListener('keydown', e => {
 
         showIndicator('Buscando: ' + code);
 
-        // 1) Buscar en la lista ya cargada (coincidencia exacta)
-        let found = products.find(p => String(p.code) === code);
+        // 1) Buscar en la lista ya cargada (trim en ambos lados por espacios en BD)
+        let found = products.find(p => String(p.code).trim() === code);
 
-        // 2) Si no está → consultar API
+        // 2) Si no está en memoria → consultar API
         if (!found) {
             try {
                 const data = await api('/products?search=' + encodeURIComponent(code));
-                found = data.find(p => String(p.code) === code);
+                found = data.find(p => String(p.code).trim() === code);
             } catch (e) { /* silencioso */ }
         }
 

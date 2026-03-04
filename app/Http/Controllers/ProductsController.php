@@ -8,6 +8,7 @@ use App\Models\Sale;
 use App\Models\Customer;
 use App\Models\CashMovement;
 use App\Models\Credit;
+use App\Models\InventoryMovement;
 use App\Services\SaleService;
 use Illuminate\Support\Facades\DB;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -86,7 +87,7 @@ class ProductsController extends Controller
 
         $products = $query->get()->map(fn($p) => [
             'id'       => $p->id,
-            'code'     => $p->codigo,
+            'code'     => trim($p->codigo),
             'name'     => trim($p->producto),
             'category' => $p->dpto ?? 'Sin categoría',
             'size'     => null,
@@ -354,7 +355,190 @@ class ProductsController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // CRUD INVENTARIO (adaptado a columnas de rodcas)
+    // INVENTARIO API (JSON – sin recarga de página)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** GET /api/pos/products/{id} */
+    public function getProduct($id)
+    {
+        $p = Product::findOrFail($id);
+        return response()->json($this->productToArray($p));
+    }
+
+    /** POST /api/pos/products  – crear producto */
+    public function storeProduct(Request $request)
+    {
+        $v = $request->validate([
+            'codigo'     => 'required|string|max:255|unique:productos,codigo',
+            'producto'   => 'required|string|max:255',
+            'dpto'       => 'nullable|string|max:255',
+            'existencia' => 'nullable|integer|min:0',
+            'inv_min'    => 'nullable|integer|min:0',
+            'inv_max'    => 'nullable|integer|min:0',
+            'p_costo'    => 'required|numeric|min:0',
+            'p_venta'    => 'required|numeric|min:0',
+            'p_mayoreo'  => 'nullable|numeric|min:0',
+        ]);
+
+        $product = Product::create([
+            'codigo'     => $v['codigo'],
+            'producto'   => $v['producto'],
+            'dpto'       => $v['dpto']       ?? null,
+            'existencia' => $v['existencia'] ?? 0,
+            'inv_min'    => $v['inv_min']    ?? 1,
+            'inv_max'    => $v['inv_max']    ?? 10,
+            'p_costo'    => $v['p_costo'],
+            'p_venta'    => $v['p_venta'],
+            'p_mayoreo'  => $v['p_mayoreo']  ?? 0,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Producto creado correctamente',
+            'data'    => $this->productToArray($product),
+        ], 201);
+    }
+
+    /** PUT /api/pos/products/{id} – actualizar producto */
+    public function updateProduct($id, Request $request)
+    {
+        $product = Product::findOrFail($id);
+
+        $v = $request->validate([
+            'codigo'     => "required|string|max:255|unique:productos,codigo,{$product->id}",
+            'producto'   => 'required|string|max:255',
+            'dpto'       => 'nullable|string|max:255',
+            'existencia' => 'nullable|integer|min:0',
+            'inv_min'    => 'nullable|integer|min:0',
+            'inv_max'    => 'nullable|integer|min:0',
+            'p_costo'    => 'required|numeric|min:0',
+            'p_venta'    => 'required|numeric|min:0',
+            'p_mayoreo'  => 'nullable|numeric|min:0',
+        ]);
+
+        $product->update($v);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Producto actualizado',
+            'data'    => $this->productToArray($product->fresh()),
+        ]);
+    }
+
+    /** DELETE /api/pos/products/{id} */
+    public function deleteProduct($id)
+    {
+        $product = Product::findOrFail($id);
+        $product->delete();
+        return response()->json(['success' => true, 'message' => 'Producto eliminado']);
+    }
+
+    /** POST /api/pos/products/{id}/entrada – entrada de mercancía */
+    public function stockEntry($id, Request $request)
+    {
+        $v = $request->validate([
+            'quantity' => 'required|integer|min:1',
+            'notes'    => 'nullable|string|max:255',
+            'p_costo'  => 'nullable|numeric|min:0',
+            'p_venta'  => 'nullable|numeric|min:0',
+        ]);
+
+        $product = Product::findOrFail($id);
+
+        DB::beginTransaction();
+        try {
+            $stockBefore = (int) $product->existencia;
+            $product->increment('existencia', $v['quantity']);
+
+            $updates = [];
+            if (isset($v['p_costo']) && $v['p_costo'] > 0) $updates['p_costo'] = $v['p_costo'];
+            if (isset($v['p_venta']) && $v['p_venta'] > 0) $updates['p_venta'] = $v['p_venta'];
+            if ($updates) $product->update($updates);
+
+            $product->refresh();
+
+            InventoryMovement::create([
+                'product_id'    => $product->id,
+                'user_id'       => auth()->id() ?? 1,
+                'type'          => 'entrada',
+                'quantity'      => $v['quantity'],
+                'stock_before'  => $stockBefore,
+                'stock_after'   => (int) $product->existencia,
+                'reference'     => 'ENT-' . date('YmdHis'),
+                'notes'         => $v['notes'] ?? 'Entrada de mercancía',
+                'movement_date' => now(),
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success'      => true,
+                'message'      => "+{$v['quantity']} unidades registradas",
+                'stock_before' => $stockBefore,
+                'stock_after'  => (int) $product->existencia,
+                'data'         => $this->productToArray($product),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    /** GET /api/pos/inventory-movements – movimientos (entradas/salidas de stock) */
+    public function getInventoryMovements(Request $request)
+    {
+        $query = InventoryMovement::with('product:id,producto,codigo')
+            ->orderBy('movement_date', 'desc');
+
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+
+        if ($request->filled('date')) {
+            $query->whereDate('movement_date', $request->date);
+        }
+
+        if ($request->filled('product_id')) {
+            $query->where('product_id', $request->product_id);
+        }
+
+        return response()->json(
+            $query->limit(50)->get()->map(fn($m) => [
+                'id'           => $m->id,
+                'product_id'   => $m->product_id,
+                'product_name' => trim($m->product->producto ?? '—'),
+                'product_code' => trim($m->product->codigo   ?? ''),
+                'type'         => $m->type,
+                'quantity'     => $m->quantity,
+                'stock_before' => $m->stock_before,
+                'stock_after'  => $m->stock_after,
+                'reference'    => $m->reference,
+                'notes'        => $m->notes,
+                'movement_date'=> $m->movement_date,
+            ])
+        );
+    }
+
+    /** Helper: Product → array JSON uniforme */
+    private function productToArray(Product $p): array
+    {
+        return [
+            'id'        => $p->id,
+            'code'      => trim($p->codigo),
+            'name'      => trim($p->producto),
+            'category'  => $p->dpto ?? '',
+            'stock'     => (int) $p->existencia,
+            'inv_min'   => (int) $p->inv_min,
+            'inv_max'   => (int) $p->inv_max,
+            'price'     => (float) $p->p_venta,
+            'wholesale' => (float) $p->p_mayoreo,
+            'cost'      => (float) $p->p_costo,
+            'image'     => $p->image,
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CRUD INVENTARIO legacy (form POST → redirect, para compatibilidad)
     // ─────────────────────────────────────────────────────────────────────
 
     public function store(Request $request)
