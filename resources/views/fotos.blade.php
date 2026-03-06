@@ -239,6 +239,20 @@
 
 <script>
 // ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Normaliza cualquier valor de imagen guardado en la BD:
+ *  - URL completa (http/https)  → se usa tal cual
+ *  - Ruta relativa              → se le antepone /storage/
+ */
+function imgUrl(value) {
+    if (!value) return null;
+    return value.startsWith('http') ? value : `/storage/${value}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ESTADO GLOBAL
 // ─────────────────────────────────────────────────────────────────────────────
 let products      = [];
@@ -326,7 +340,7 @@ function renderList() {
                 : `<span class="text-xs text-gray-400">sin foto</span>`;
 
         const thumbnail = hasPhoto
-            ? `<img src="${p.image}" class="w-10 h-10 object-cover rounded border" onerror="this.style.display='none'">`
+            ? `<img src="${imgUrl(p.image)}" class="w-10 h-10 object-cover rounded border" onerror="this.style.display='none'">`
             : `<div class="w-10 h-10 bg-gray-100 rounded border flex items-center justify-center text-gray-300 text-lg">📷</div>`;
 
         return `<div onclick="selectProduct(${p.id})"
@@ -383,7 +397,7 @@ function selectProduct(id) {
     const btnDelete    = document.getElementById('btnDeletePhoto');
 
     if (p.image) {
-        currentPhoto.src = p.image;
+        currentPhoto.src = imgUrl(p.image);
         currentPhoto.classList.remove('hidden');
         noPhotoMsg.classList.add('hidden');
         btnDelete.classList.remove('hidden');
@@ -546,7 +560,7 @@ async function savePhoto() {
             const btnDelete    = document.getElementById('btnDeletePhoto');
             const badge        = document.getElementById('prodVerifiedBadge');
 
-            currentPhoto.src = data.image_url;
+            currentPhoto.src = imgUrl(data.image_url);
             currentPhoto.classList.remove('hidden');
             noPhotoMsg.classList.add('hidden');
             btnDelete.classList.remove('hidden');

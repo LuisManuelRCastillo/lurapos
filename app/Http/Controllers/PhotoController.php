@@ -205,11 +205,12 @@ class PhotoController extends Controller
 
         Storage::disk('public')->put($filename, $contents);
 
-        return Storage::disk('public')->url($filename);
+        // Guardamos la ruta relativa (no la URL completa) para portabilidad entre entornos.
+        return $filename;
     }
 
     /**
-     * Guarda un UploadedFile en storage y devuelve la URL pública.
+     * Guarda un UploadedFile en storage y devuelve la ruta relativa.
      */
     private function storeUploadedFile($file, string $productCode): string
     {
@@ -219,7 +220,8 @@ class PhotoController extends Controller
 
         Storage::disk('public')->put($name, file_get_contents($file->getRealPath()));
 
-        return Storage::disk('public')->url($name);
+        // Guardamos la ruta relativa, no la URL completa.
+        return $name;
     }
 
     /**
@@ -229,11 +231,16 @@ class PhotoController extends Controller
     {
         if (!$imageUrl) return;
 
-        // Solo eliminar si es un archivo local (contiene /storage/)
-        if (!str_contains($imageUrl, '/storage/')) return;
+        // Determinar la ruta relativa dentro del disco 'public':
+        // — registros nuevos: ya es ruta relativa  →  "productos/fotos/file.jpg"
+        // — registros viejos: URL completa con /storage/  →  extraer la parte relativa
+        if (str_starts_with($imageUrl, 'http')) {
+            if (!str_contains($imageUrl, '/storage/')) return; // URL externa, no tocar
+            $path = preg_replace('#^.*/storage/#', '', $imageUrl);
+        } else {
+            $path = $imageUrl; // ya es ruta relativa
+        }
 
-        // Extraer la ruta relativa: quitar dominio y '/storage/'
-        $path = preg_replace('#^.*/storage/#', '', $imageUrl);
         if ($path && Storage::disk('public')->exists($path)) {
             Storage::disk('public')->delete($path);
         }

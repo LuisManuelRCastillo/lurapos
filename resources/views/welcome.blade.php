@@ -799,8 +799,11 @@ function renderProducts() {
         div.className = 'product-card bg-white rounded-xl shadow-sm border-2 border-transparent p-3 cursor-pointer select-none';
 
         const stockClass = p.stock <= 5 ? 'bg-red-100 text-red-700' : 'bg-zinc-100 text-zinc-700';
-        const imgHtml = p.image
-            ? `<img src="/storage/${p.image}"
+        const imgSrc  = p.image
+            ? (p.image.startsWith('http') ? p.image : `/storage/${p.image}`)
+            : null;
+        const imgHtml = imgSrc
+            ? `<img src="${imgSrc}"
                     class="w-full h-20 object-contain mb-2 rounded-lg bg-gray-50"
                     onerror="this.replaceWith(iconFallback())">`
             : `<div class="w-full h-16 flex items-center justify-center mb-2 text-gray-300">
