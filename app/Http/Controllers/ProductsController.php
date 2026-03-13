@@ -296,8 +296,32 @@ class ProductsController extends Controller
             ->whereBetween('sale_date', [$startDate, $endDate])
             ->when($branchId, fn($q) => $q->where('branch_id', $branchId));
 
+        $totalSales = (float) (clone $salesQuery)->sum('total');
+
+        // Margen bruto, costo y SKUs únicos del período
+        $marginRow = DB::table('sale_details')
+            ->join('sales',     'sale_details.sale_id',    '=', 'sales.id')
+            ->join('productos', 'sale_details.product_id', '=', 'productos.id')
+            ->whereBetween('sales.sale_date', [$startDate, $endDate])
+            ->where('sales.status', 'completada')
+            ->when($branchId, fn($q) => $q->where('sales.branch_id', $branchId))
+            ->selectRaw('
+                SUM((sale_details.unit_price - productos.p_costo) * sale_details.quantity) AS margin,
+                SUM(productos.p_costo * sale_details.quantity)                             AS cost,
+                COUNT(DISTINCT sale_details.product_id)                                    AS unique_skus
+            ')
+            ->first();
+
+        $totalMargin = (float) ($marginRow->margin ?? 0);
+        $totalCost   = (float) ($marginRow->cost   ?? 0);
+        $marginPct   = $totalSales > 0 ? round($totalMargin / $totalSales * 100, 1) : 0;
+
         $stats = [
-            'total_sales'        => (clone $salesQuery)->sum('total'),
+            'total_sales'        => $totalSales,
+            'total_margin'       => round($totalMargin, 2),
+            'margin_pct'         => $marginPct,
+            'total_cost'         => round($totalCost, 2),
+            'unique_skus'        => (int) ($marginRow->unique_skus ?? 0),
             'transactions_count' => (clone $salesQuery)->count(),
             'average_ticket'     => (clone $salesQuery)->avg('total'),
 
@@ -309,12 +333,13 @@ class ProductsController extends Controller
 
             'daily_sales' => Sale::where('status', 'completada')
                 ->when($branchId, fn($q) => $q->where('branch_id', $branchId))
+                ->whereBetween('sale_date', [$startDate, $endDate])
                 ->selectRaw('DATE(sale_date) as date, SUM(total) as total')
                 ->groupBy('date')
                 ->orderBy('date')
                 ->get(),
 
-            // Top productos usando la tabla real 'productos'
+            // Top 8 productos por revenue
             'top_products' => DB::table('sale_details')
                 ->join('productos', 'sale_details.product_id', '=', 'productos.id')
                 ->join('sales',     'sale_details.sale_id',    '=', 'sales.id')
@@ -323,8 +348,22 @@ class ProductsController extends Controller
                 ->when($branchId, fn($q) => $q->where('sales.branch_id', $branchId))
                 ->selectRaw('productos.producto as name, SUM(sale_details.quantity) as total_sold, SUM(sale_details.total) as revenue')
                 ->groupBy('productos.id', 'productos.producto')
-                ->orderByDesc('total_sold')
-                ->limit(5)
+                ->orderByDesc('revenue')
+                ->limit(8)
+                ->get(),
+
+            // Ventas por categoría (top 8)
+            'sales_by_category' => DB::table('sale_details')
+                ->join('productos', 'sale_details.product_id', '=', 'productos.id')
+                ->join('sales',     'sale_details.sale_id',    '=', 'sales.id')
+                ->whereBetween('sales.sale_date', [$startDate, $endDate])
+                ->where('sales.status', 'completada')
+                ->when($branchId, fn($q) => $q->where('sales.branch_id', $branchId))
+                ->whereNotNull('productos.dpto')
+                ->selectRaw('productos.dpto as category, SUM(sale_details.total) as total')
+                ->groupBy('productos.dpto')
+                ->orderByDesc('total')
+                ->limit(8)
                 ->get(),
 
             'sales_by_method' => (clone $salesQuery)
@@ -349,9 +388,79 @@ class ProductsController extends Controller
                 ->groupBy('sales.id', 'sales.sale_date', 'sales.payment_method')
                 ->orderBy('sales.sale_date', 'desc')
                 ->get(),
+
+            'kpis'        => $this->calcularKpis($startDate, $endDate, $branchId),
+            'kpi_periodo' => $startDate->diffInDays($endDate) + 1,
         ];
 
         return response()->json($stats);
+    }
+
+    /**
+     * Calcula TOS, Sell-Through y GMROI por SKU en el período dado.
+     *
+     *   TOS   = (unidades_vendidas / stock_actual) × (365 / días_período)   → rotaciones/año
+     *   ST%   = (TOS / 12) × 100                                            → % del stock vendido/mes
+     *   GMROI = (margen_bruto_período / (stock_actual × costo)) × (365 / días_período) → $/$ invertido/año
+     */
+    private function calcularKpis(Carbon $start, Carbon $end, ?string $branchId): array
+    {
+        $dias = max(1, $start->diffInDays($end) + 1);
+        $mult = 365 / $dias;
+
+        $rows = DB::table('sale_details')
+            ->join('sales',     'sale_details.sale_id',    '=', 'sales.id')
+            ->join('productos', 'sale_details.product_id', '=', 'productos.id')
+            ->whereBetween('sales.sale_date', [$start, $end])
+            ->where('sales.status', 'completada')
+            ->when($branchId, fn($q) => $q->where('sales.branch_id', $branchId))
+            ->where('productos.existencia', '>', 0)
+            ->where('productos.p_costo',    '>', 0)
+            ->selectRaw('
+                productos.id,
+                productos.producto  AS name,
+                productos.codigo    AS sku,
+                productos.dpto      AS category,
+                productos.existencia AS stock,
+                productos.p_costo   AS costo,
+                SUM(sale_details.quantity) AS vendido,
+                SUM(sale_details.total)    AS venta_total,
+                SUM((sale_details.unit_price - productos.p_costo) * sale_details.quantity) AS margen_bruto
+            ')
+            ->groupBy(
+                'productos.id', 'productos.producto', 'productos.codigo',
+                'productos.dpto', 'productos.existencia', 'productos.p_costo'
+            )
+            ->orderByDesc('margen_bruto')
+            ->limit(100)
+            ->get();
+
+        return $rows->map(function ($p) use ($mult) {
+            $tos   = ($p->stock > 0)
+                ? round(($p->vendido / $p->stock) * $mult, 2)
+                : null;
+            $st    = $tos !== null
+                ? round(($tos / 12) * 100, 1)       // % mensual
+                : null;
+            $costoInv = $p->stock * $p->costo;
+            $gmroi = ($costoInv > 0 && $p->margen_bruto !== null)
+                ? round(($p->margen_bruto / $costoInv) * $mult, 2)
+                : null;
+
+            return [
+                'id'           => $p->id,
+                'sku'          => $p->sku,
+                'name'         => $p->name,
+                'category'     => $p->category ?? '—',
+                'stock'        => (int) $p->stock,
+                'vendido'      => (int) $p->vendido,
+                'venta_total'  => round($p->venta_total,  2),
+                'margen_bruto' => round($p->margen_bruto, 2),
+                'tos'          => $tos,
+                'st'           => $st,
+                'gmroi'        => $gmroi,
+            ];
+        })->all();
     }
 
     // ─────────────────────────────────────────────────────────────────────
