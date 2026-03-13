@@ -14,7 +14,9 @@
       "Bash(composer show:*)",
       "Bash(php -r \"echo ''''PHP syntax check'''';\")",
       "Bash(php -l app/Http/Controllers/ProductsController.php)",
-      "Bash(find resources/views/auth -name login*)"
+      "Bash(find resources/views/auth -name login*)",
+      "Bash(ls public/*.ico public/*.png public/favicon*)",
+      "Bash(grep -l \"title\\\\|head\" resources/views/layouts/*.blade.php)"
     ]
   }
 }
