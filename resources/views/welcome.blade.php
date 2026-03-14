@@ -1298,7 +1298,7 @@ async function confirmSale() {
 
         // Abrir ventana de impresión (popup pequeño)
         window.open(
-            '{{ route("pos.receipt") }}',
+            '{{ route("pos.receipt") }}?ticket=' + encodeURIComponent(result.data.invoice_number),
             'ticket_print',
             'width=360,height=620,toolbar=0,menubar=0,location=0,status=0,scrollbars=1'
         );
@@ -1351,7 +1351,8 @@ document.getElementById('clearCartBtn').onclick = () => {
    REIMPRIMIR ÚLTIMO TICKET
 ═══════════════════════════════════════════════════════════ */
 function reprintLastTicket() {
-    if (!localStorage.getItem('lastReceipt')) {
+    const raw = localStorage.getItem('lastReceipt');
+    if (!raw) {
         Swal.fire({
             icon: 'info', title: 'Sin ticket reciente',
             text: 'Realiza una venta primero.',
@@ -1360,8 +1361,9 @@ function reprintLastTicket() {
         });
         return;
     }
+    const ticketNum = JSON.parse(raw)?.invoice_number || '';
     window.open(
-        '{{ route("pos.receipt") }}',
+        '{{ route("pos.receipt") }}?ticket=' + encodeURIComponent(ticketNum),
         'ticket_print',
         'width=360,height=620,toolbar=0,menubar=0,location=0,status=0,scrollbars=1'
     );
@@ -1891,7 +1893,7 @@ async function reprintFromHistory(saleId, btn) {
         }));
 
         window.open(
-            '{{ route("pos.receipt") }}',
+            '{{ route("pos.receipt") }}?ticket=' + encodeURIComponent(sale.invoice_number || ''),
             'ticket_print',
             'width=360,height=620,toolbar=0,menubar=0,location=0,status=0,scrollbars=1'
         );

@@ -10,7 +10,11 @@
                     ? 'data:image/png;base64,' . base64_encode(file_get_contents($logoPath))
                     : null;
 
-    /* QR del sitio web para solicitar facturas – generado en PHP, sin depender de internet */
+    /* QR con número de ticket para solicitar factura */
+    $ticketParam = request('ticket', '');
+    $qrUrl = $ticketParam
+        ? 'https://rodcas.luradev.com/factura?ticket=' . urlencode($ticketParam)
+        : 'https://rodcas.luradev.com';
     try {
         $qrWriter  = new \BaconQrCode\Writer(
             new \BaconQrCode\Renderer\ImageRenderer(
@@ -18,7 +22,7 @@
                 new \BaconQrCode\Renderer\Image\SvgImageBackEnd()
             )
         );
-        $qrSvg  = $qrWriter->writeString('https://rodcas.luradev.com');
+        $qrSvg  = $qrWriter->writeString($qrUrl);
         $qrB64  = 'data:image/svg+xml;base64,' . base64_encode($qrSvg);
     } catch (\Throwable $e) {
         $qrB64 = null;
