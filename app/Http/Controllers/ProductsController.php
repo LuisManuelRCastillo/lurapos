@@ -328,7 +328,6 @@ class ProductsController extends Controller
             // Stock bajo usando columnas reales de rodcas
             'low_stock_products' => DB::table('productos')
                 ->whereRaw('existencia <= inv_min')
-                ->whereNull('deleted_at')
                 ->count(),
 
             'daily_sales' => Sale::where('status', 'completada')
